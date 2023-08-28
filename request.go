@@ -175,6 +175,24 @@ func (req *Request) sendTransaction(wg *sync.WaitGroup, nonce int64) {
 	}
 }
 
+func (req *Request) getChainId(wg *sync.WaitGroup) {
+	for i := 1; i <= goroutines; i++ {
+		go func(i int) {
+			select {
+			case <-req.ctx.Done():
+				return
+			default:
+				defer wg.Done()
+				for j := 0; j < round; j++ {
+					now := time.Now()
+					req.client.cli.EthGetChainId()
+					req.handleCnt(now)
+				}
+			}
+		}(i)
+	}
+}
+
 func (req *Request) handleCnt(now time.Time) {
 	txLatency := time.Since(now).Milliseconds()
 	for {

@@ -19,11 +19,17 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+const (
+	send = "send"
+	get  = "get"
+)
+
 var (
 	goroutines int
 	round      int
 	limitTps   bool
 	tps        int
+	queryType  string
 )
 
 type Config struct {
@@ -106,6 +112,7 @@ func Init() {
 
 	flag.BoolVar(&limitTps, "limit_tps", false, "limit send transaction tps for client")
 	flag.IntVar(&tps, "tps", 500, "average send transaction tps for client")
+	flag.StringVar(&queryType, "tp", send, "The query type")
 }
 
 func main() {
@@ -150,7 +157,11 @@ func main() {
 		}
 		wg := &sync.WaitGroup{}
 		wg.Add(goroutines)
-		req.sendTransaction(wg, int64(nonce))
+		if queryType == send {
+			req.sendTransaction(wg, int64(nonce))
+		} else {
+			req.getChainId(wg)
+		}
 		wg.Wait()
 		req.cancel()
 	}
