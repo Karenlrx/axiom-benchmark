@@ -1,4 +1,4 @@
-# Get sign benchmark for axiom
+# Client for simulating transaction in Axiom benchmark
 
 test axiom handle transaction benchmark.
 
@@ -23,7 +23,7 @@ cd axiom-benchmark && go build -o sendTx *.go
 ```
     you can get the help of command:
 ``` shell
-Usage of ./getSign:
+Usage of ./sendTx                                   
   -g int
         The number of concurrent go routines to send transaction to axiom (default 200)
   -limit_tps

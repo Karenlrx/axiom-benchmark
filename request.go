@@ -56,12 +56,12 @@ func (req *Request) listenTxSet() {
 					if err := retry.Retry(func(attempt uint) error {
 						_, err := req.client.cli.EthSendRawTransaction(tx)
 						if err != nil {
-							req.logger.Errorf("get sign err:%s", err)
+							req.logger.Errorf("send transaction err:%s", err)
 							return err
 						}
 						return nil
 					}, strategy.Wait(1*time.Second)); err != nil {
-						req.logger.Panicf("get sign err:%s", err)
+						req.logger.Panicf("send transaction err:%s", err)
 					}
 					req.handleCnt(current)
 				}(tx)
@@ -165,7 +165,7 @@ func (req *Request) sendTransaction(wg *sync.WaitGroup, nonce int64) {
 					}
 					_, err = req.client.cli.EthSendRawTransaction(tx)
 					if err != nil {
-						req.logger.Errorf("get sign err:%s", err)
+						req.logger.Errorf("send tx err:%s", err)
 						continue
 					}
 					req.handleCnt(now)
