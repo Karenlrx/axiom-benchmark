@@ -29,6 +29,7 @@ var (
 type Config struct {
 	PrivateKey string   `toml:"private_key"`
 	IP         []string `toml:"ip"`
+	PoolSize   int      `toml:"pool_size"`
 }
 
 func loadConfig(filePath string) (*Config, error) {
@@ -81,6 +82,7 @@ func NewClient() (*ClientWrapper, error) {
 
 	cli, err := client.New(
 		client.WithUrls(conf.IP),
+		client.WithPoolSize(conf.PoolSize),
 	)
 	if err != nil {
 		return nil, err
