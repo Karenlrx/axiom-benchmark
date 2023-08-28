@@ -86,7 +86,7 @@ func (req *Request) generateTx(nonce int64) (*types.Transaction, error) {
 func (req *Request) limitSendTps() {
 	go req.listenTxSet()
 
-	ticker := time.NewTicker(100 * time.Millisecond)
+	ticker := time.NewTicker(1 * time.Second)
 	nonce, err := req.client.cli.EthGetTransactionCount(req.client.account.Address, big.NewInt(-1))
 	if err != nil {
 		req.logger.Panicf("get nonce err:%s", err)
