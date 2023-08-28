@@ -19,7 +19,7 @@ cd axiom-benchmark && go build -o sendTx *.go
 
 - run test:
 ``` shell
-./sendTx -g 1 -r 1 -size 10 -t multiSign -need_retry=false -mock_pier=false
+./sendTx -g 10 -r 200 --limit_tps=true -tps 200
 ```
     you can get the help of command:
 ``` shell
