@@ -175,6 +175,28 @@ func (req *Request) sendTransaction(wg *sync.WaitGroup, nonce int64) {
 	}
 }
 
+func (req *Request) getBalance(wg *sync.WaitGroup) {
+	for i := 1; i <= goroutines; i++ {
+		go func(i int) {
+			select {
+			case <-req.ctx.Done():
+				return
+			default:
+				defer wg.Done()
+				for j := 0; j < round; j++ {
+					now := time.Now()
+					_, err := req.client.cli.EthGetBalance(req.client.account.Address, big.NewInt(-1))
+					if err != nil {
+						req.logger.Errorf("get balance err:%s", err)
+						continue
+					}
+					req.handleCnt(now)
+				}
+			}
+		}(i)
+	}
+}
+
 func (req *Request) handleCnt(now time.Time) {
 	txLatency := time.Since(now).Milliseconds()
 	for {
