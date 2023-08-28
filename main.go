@@ -97,13 +97,13 @@ func NewClient() (*ClientWrapper, error) {
 }
 
 func Init() {
-	flag.IntVar(&goroutines, "g", 1000,
+	flag.IntVar(&goroutines, "g", 200,
 		"The number of concurrent go routines to send transaction to axiom")
 	flag.IntVar(&round, "r", 10000,
 		"The round of concurrent go routines to send transaction from axiom")
 
 	flag.BoolVar(&limitTps, "limit_tps", false, "limit send transaction tps for client")
-	flag.IntVar(&tps, "tps", 5000, "average send transaction tps for client")
+	flag.IntVar(&tps, "tps", 500, "average send transaction tps for client")
 }
 
 func main() {
@@ -123,14 +123,16 @@ func main() {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	req := &Request{
-		client:   client,
-		totalTps: make([]int64, 0),
-		ctx:      ctx,
-		cancel:   cancel,
-		logger:   logger,
-		txSet:    make([]*types.Transaction, 0),
-		txsCh:    make(chan []*types.Transaction, 1024000),
+		client:    client,
+		totalTps:  make([]int64, 0),
+		ctx:       ctx,
+		cancel:    cancel,
+		logger:    logger,
+		txSet:     make([]*types.Transaction, 0),
+		txsCh:     make(chan []*types.Transaction, 1024000),
+		txSetDone: make(chan struct{}, 1),
 	}
+	req.txSetDone <- struct{}{}
 	req.handleShutdown(cancel)
 
 	// listen average second tps
@@ -158,7 +160,7 @@ func main() {
 	for _, v := range req.totalTps[begin:end] {
 		total += v
 	}
-	logger.Infof("End Test, total query count is %d , average tps is %f , average latency is %fms",
+	logger.Infof("End Test, total send tx count is %d , average tps is %f , average latency is %fms",
 		goroutines*round, float64(total)/float64(end-begin),
 		float64(req.latency)/float64(req.queryCnt))
 }

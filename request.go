@@ -23,6 +23,7 @@ type Request struct {
 	client     *ClientWrapper
 	txsCh      chan []*types.Transaction
 	txSet      []*types.Transaction
+	txSetDone  chan struct{}
 	avCnt      int64
 	avLatency  int64
 	queryCnt   int64
@@ -64,9 +65,9 @@ func (req *Request) listenTxSet() {
 					}
 					req.handleCnt(current)
 				}(tx)
-				//req.logger.WithFields(logrus.Fields{"time": time.Since(now), "num": n}).Info("end handle txSet")
 			}
 			wg.Wait()
+			req.txSetDone <- struct{}{}
 			req.logger.WithFields(logrus.Fields{"time": time.Since(now), "setNum": setNum, "size": len(batch)}).Info("end handle txSet")
 			setNum++
 		case <-req.ctx.Done():
@@ -90,36 +91,39 @@ func (req *Request) limitSendTps() {
 	if err != nil {
 		req.logger.Panicf("get nonce err:%s", err)
 	}
-	index := int(nonce)
+	index := 0
 	size := tps
+	totalCount := goroutines * round
 	for {
 		select {
 		case <-req.ctx.Done():
 			return
 		case <-ticker.C:
-			if index+size >= goroutines*round {
-				size = goroutines*round - index + 1
+			// size too large
+			if index+size >= totalCount {
+				size = goroutines*round + 1
 				batch := make([]*types.Transaction, 0)
 				for i := index; i < index+size; i++ {
-					tx, err := req.generateTx(int64(i))
+					tx, err := req.generateTx(int64(i) + int64(nonce))
 					if err != nil {
 						req.logger.Panicf("generate tx err:%s", err)
 					}
 					batch = append(batch, tx)
 				}
+				<-req.txSetDone
 				req.txsCh <- batch
-				time.Sleep(1 * time.Second)
 				req.cancel()
 				return
 			}
 			batch := make([]*types.Transaction, 0)
 			for i := index; i < index+size; i++ {
-				tx, err := req.generateTx(int64(i))
+				tx, err := req.generateTx(int64(i) + int64(nonce))
 				if err != nil {
 					req.logger.Panicf("generate tx err:%s", err)
 				}
 				batch = append(batch, tx)
 			}
+			<-req.txSetDone
 			req.txsCh <- batch
 			index += size
 		}
@@ -200,6 +204,7 @@ func (req *Request) handleShutdown(cancel context.CancelFunc) {
 		<-stop
 		fmt.Println("received interrupt signal, shutting down...")
 		cancel()
+		close(req.txSetDone)
 		os.Exit(0)
 	}()
 }
