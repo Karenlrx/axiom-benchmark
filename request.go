@@ -37,7 +37,7 @@ type Request struct {
 
 const (
 	gasPrice = 5000000000000
-	to       = "0xc0Ff2e0b3189132D815b8eb325bE17285AC898f8"
+	to       = "0xa2f28344131970356c4a112d1e634e51589aa57c"
 )
 
 func (req *Request) listenTxSet() {
