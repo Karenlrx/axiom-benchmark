@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"math/big"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/ethereum/go-ethereum/accounts/keystore"
@@ -20,8 +21,9 @@ import (
 )
 
 const (
-	send = "send"
-	get  = "get"
+	transfer = "transfer"
+	get      = "get"
+	contract = "contract"
 )
 
 var (
@@ -112,7 +114,7 @@ func Init() {
 
 	flag.BoolVar(&limitTps, "limit_tps", false, "limit send transaction tps for client")
 	flag.IntVar(&tps, "tps", 500, "average send transaction tps for client")
-	flag.StringVar(&queryType, "tp", send, "The query type")
+	flag.StringVar(&queryType, "tp", transfer, "The query type")
 }
 
 func main() {
@@ -123,7 +125,9 @@ func main() {
 		"goroutines": goroutines,
 		"round":      round,
 		"limitTps":   limitTps,
-		"tps":        tps}).Info("input param")
+		"tps":        tps,
+		"queryType":  queryType,
+	}).Info("input param")
 
 	client, err := NewClient()
 	if err != nil {
@@ -148,8 +152,18 @@ func main() {
 	tk := time.NewTicker(time.Second)
 	go req.listen(tk)
 
+	if queryType == contract {
+		nonce, err := req.client.cli.EthGetTransactionCount(req.client.account.Address, big.NewInt(-1))
+		if err != nil {
+			req.logger.Panicf("get nonce err:%s", err)
+		}
+		if err = req.deployContract(atomic.AddUint64(&nonce, 1) - 1); err != nil {
+			req.logger.Panicf("deploy contract err:%s", err)
+		}
+	}
+
 	if limitTps {
-		req.limitSendTps()
+		req.limitSendTps(queryType)
 	} else {
 		nonce, err := req.client.cli.EthGetTransactionCount(req.client.account.Address, big.NewInt(-1))
 		if err != nil {
@@ -157,10 +171,15 @@ func main() {
 		}
 		wg := &sync.WaitGroup{}
 		wg.Add(goroutines)
-		if queryType == send {
-			req.sendTransaction(wg, int64(nonce))
-		} else {
+		switch queryType {
+		case get:
 			req.getBalance(wg)
+		case transfer:
+			fallthrough
+		case contract:
+			req.sendTransaction(wg, nonce, queryType)
+		default:
+			req.logger.Panicf("not support query type:%s", queryType)
 		}
 		wg.Wait()
 		req.cancel()

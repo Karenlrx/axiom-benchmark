@@ -6,6 +6,7 @@ import (
 	"math/big"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/Rican7/retry"
 	"github.com/Rican7/retry/strategy"
+	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/meshplus/go-eth-client/utils"
@@ -33,6 +35,8 @@ type Request struct {
 	ctx        context.Context
 	cancel     context.CancelFunc
 	logger     *logrus.Logger
+
+	contractAddr string
 }
 
 const (
@@ -76,14 +80,14 @@ func (req *Request) listenTxSet() {
 	}
 }
 
-func (req *Request) generateTx(nonce int64) (*types.Transaction, error) {
+func (req *Request) generateTransferTx(nonce uint64) (*types.Transaction, error) {
 	price := big.NewInt(gasPrice)
-	tx := utils.NewTransaction(uint64(nonce), common.HexToAddress(to), uint64(10000000), price, nil, big.NewInt(0))
+	tx := utils.NewTransaction(nonce, common.HexToAddress(to), uint64(10000000), price, nil, big.NewInt(0))
 	signTx, err := types.SignTx(tx, types.NewEIP155Signer(req.client.cli.EthGetChainId()), req.client.account.PrivateKey)
 	return signTx, err
 }
 
-func (req *Request) limitSendTps() {
+func (req *Request) limitSendTps(typ string) {
 	go req.listenTxSet()
 
 	ticker := time.NewTicker(1 * time.Second)
@@ -104,9 +108,18 @@ func (req *Request) limitSendTps() {
 				size = goroutines*round + 1
 				batch := make([]*types.Transaction, 0)
 				for i := index; i < index+size; i++ {
-					tx, err := req.generateTx(int64(i) + int64(nonce))
-					if err != nil {
-						req.logger.Panicf("generate tx err:%s", err)
+					var tx *types.Transaction
+					switch typ {
+					case transfer:
+						tx, err = req.generateTransferTx(uint64(i) + nonce)
+						if err != nil {
+							req.logger.Panicf("generate transfer tx err:%s", err)
+						}
+					case contract:
+						tx, err = req.generateContractTx(uint64(i)+nonce, req.contractAddr, uint64(0))
+						if err != nil {
+							req.logger.Panicf("generate Contract tx err:%s", err)
+						}
 					}
 					batch = append(batch, tx)
 				}
@@ -117,7 +130,7 @@ func (req *Request) limitSendTps() {
 			}
 			batch := make([]*types.Transaction, 0)
 			for i := index; i < index+size; i++ {
-				tx, err := req.generateTx(int64(i) + int64(nonce))
+				tx, err := req.generateTransferTx(uint64(i) + nonce)
 				if err != nil {
 					req.logger.Panicf("generate tx err:%s", err)
 				}
@@ -147,7 +160,36 @@ func (req *Request) listen(tk *time.Ticker) {
 	}
 }
 
-func (req *Request) sendTransaction(wg *sync.WaitGroup, nonce int64) {
+func (req *Request) deployContract(nonce uint64) error {
+	bytecode := common.Hex2Bytes(ContractBIN)
+	tx := types.NewTx(&types.LegacyTx{
+		Nonce:    atomic.AddUint64(&nonce, 1) - 1,
+		Gas:      uint64(5000000),
+		GasPrice: big.NewInt(gasPrice),
+		Data:     bytecode,
+	})
+	signTx, err := types.SignTx(tx, types.NewEIP155Signer(req.client.cli.EthGetChainId()), req.client.account.PrivateKey)
+	if err != nil {
+		return fmt.Errorf("sign tx err:%s", err)
+	}
+	txHash, err := req.client.cli.EthSendRawTransaction(signTx)
+	if err != nil {
+		return fmt.Errorf("send tx err:%s", err)
+	}
+	time.Sleep(1 * time.Second)
+	receipt, err := req.client.cli.EthGetTransactionReceipt(txHash)
+	if err != nil {
+		return fmt.Errorf("get receipt err:%s", err)
+	}
+	if receipt.Status != types.ReceiptStatusSuccessful {
+		return fmt.Errorf("deploy contract error")
+	}
+
+	req.contractAddr = receipt.ContractAddress.String()
+	return nil
+}
+
+func (req *Request) sendTransaction(wg *sync.WaitGroup, nonce uint64, typ string) {
 	for i := 1; i <= goroutines; i++ {
 		go func(i int) {
 			select {
@@ -158,10 +200,19 @@ func (req *Request) sendTransaction(wg *sync.WaitGroup, nonce int64) {
 				for j := 0; j < round; j++ {
 					var err error
 					now := time.Now()
-					tx, err := req.generateTx(atomic.AddInt64(&nonce, 1) - 1)
-					if err != nil {
-						req.logger.Panicf("generate tx err:%s", err)
-						continue
+					var tx *types.Transaction
+					if typ == transfer {
+						tx, err = req.generateTransferTx(atomic.AddUint64(&nonce, 1) - 1)
+						if err != nil {
+							req.logger.Panicf("generate tx err:%s", err)
+							continue
+						}
+					} else if typ == contract {
+						tx, err = req.generateContractTx(atomic.AddUint64(&nonce, 1)-1, req.contractAddr, uint64(0))
+						if err != nil {
+							req.logger.Panicf("generate tx err:%s", err)
+							continue
+						}
 					}
 					_, err = req.client.cli.EthSendRawTransaction(tx)
 					if err != nil {
@@ -229,4 +280,38 @@ func (req *Request) handleShutdown(cancel context.CancelFunc) {
 		close(req.txSetDone)
 		os.Exit(0)
 	}()
+}
+
+const ContractABI = "[{\"inputs\":[],\"name\":\"retrieve\",\"outputs\":[{\"internalType\":\"uint64\",\"name\":\"\",\"type\":\"uint64\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint64\",\"name\":\"num\",\"type\":\"uint64\"}],\"name\":\"store\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"}]"
+const ContractBIN = "608060405234801561001057600080fd5b50610186806100206000396000f3fe608060405234801561001057600080fd5b50600436106100365760003560e01c80631d9a3bdd1461003b5780632e64cec114610057575b600080fd5b610055600480360381019061005091906100d2565b610075565b005b61005f6100a0565b60405161006c919061010a565b60405180910390f35b806000806101000a81548167ffffffffffffffff021916908367ffffffffffffffff16021790555050565b60008060009054906101000a900467ffffffffffffffff16905090565b6000813590506100cc81610139565b92915050565b6000602082840312156100e457600080fd5b60006100f2848285016100bd565b91505092915050565b61010481610125565b82525050565b600060208201905061011f60008301846100fb565b92915050565b600067ffffffffffffffff82169050919050565b61014281610125565b811461014d57600080fd5b5056fea26469706673582212204691849347a2f1bef4241dc7ceacb8f17c8556dad30e2a1f78e8450c908986a764736f6c63430008040033"
+
+func (req *Request) generateContractTx(nonce uint64, contractAddr string, value uint64) (*types.Transaction, error) {
+	loadABI, err := abi.JSON(strings.NewReader(ContractABI))
+	if err != nil {
+		return nil, err
+	}
+	pack, err := loadABI.Pack("store", value)
+	if err != nil {
+		return nil, err
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	gasLimit := uint64(210000)
+
+	toAddress := common.HexToAddress(contractAddr)
+
+	tx := types.NewTx(&types.LegacyTx{
+		To:       &toAddress,
+		Nonce:    nonce,
+		Gas:      gasLimit,
+		GasPrice: big.NewInt(gasPrice),
+		Data:     pack,
+	})
+	signTx, err := types.SignTx(tx, types.NewEIP155Signer(req.client.cli.EthGetChainId()), req.client.account.PrivateKey)
+	if err != nil {
+		return nil, err
+	}
+	return signTx, nil
 }
