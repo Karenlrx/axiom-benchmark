@@ -214,8 +214,13 @@ func (req *Request) sendTransaction(wg *sync.WaitGroup, nonce uint64, typ string
 							continue
 						}
 					}
-					_, err = req.client.cli.EthSendRawTransaction(tx)
-					if err != nil {
+					if err := retry.Retry(func(attempt uint) error {
+						_, err = req.client.cli.EthSendRawTransaction(tx)
+						if err != nil {
+							return err
+						}
+						return nil
+					}, strategy.Wait(100*time.Millisecond)); err != nil {
 						req.logger.Errorf("send tx err:%s", err)
 						continue
 					}
