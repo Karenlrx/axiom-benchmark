@@ -27,11 +27,12 @@ const (
 )
 
 var (
-	goroutines int
-	round      int
-	limitTps   bool
-	tps        int
-	queryType  string
+	goroutines    int
+	round         int
+	limitTps      bool
+	tps           int
+	queryType     string
+	randomAccount bool
 )
 
 type Config struct {
@@ -115,6 +116,7 @@ func Init() {
 	flag.BoolVar(&limitTps, "limit_tps", false, "limit send transaction tps for client")
 	flag.IntVar(&tps, "tps", 500, "average send transaction tps for client")
 	flag.StringVar(&queryType, "tp", transfer, "The query type")
+	flag.BoolVar(&randomAccount, "random_account", false, "use random account to send tx,(NOTICE: make sure chain gasPrice is 0!!!)")
 }
 
 func main() {

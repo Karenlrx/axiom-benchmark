@@ -40,7 +40,7 @@ type Request struct {
 }
 
 const (
-	gasPrice = 5000000000000
+	gasPrice = 10000000000000
 	to       = "0xa2f28344131970356c4a112d1e634e51589aa57c"
 )
 
@@ -81,9 +81,19 @@ func (req *Request) listenTxSet() {
 }
 
 func (req *Request) generateTransferTx(nonce uint64) (*types.Transaction, error) {
+	var err error
+	privateKey := req.client.account.PrivateKey
 	price := big.NewInt(gasPrice)
+	if randomAccount {
+		privateKey, _, err = utils.NewAccount()
+		if err != nil {
+			return nil, err
+		}
+		price = big.NewInt(0)
+		nonce = 0
+	}
 	tx := utils.NewTransaction(nonce, common.HexToAddress(to), uint64(10000000), price, nil, big.NewInt(0))
-	signTx, err := types.SignTx(tx, types.NewEIP155Signer(req.client.cli.EthGetChainId()), req.client.account.PrivateKey)
+	signTx, err := types.SignTx(tx, types.NewEIP155Signer(req.client.cli.EthGetChainId()), privateKey)
 	return signTx, err
 }
 
@@ -307,14 +317,27 @@ func (req *Request) generateContractTx(nonce uint64, contractAddr string, value 
 
 	toAddress := common.HexToAddress(contractAddr)
 
+	price := big.NewInt(gasPrice)
+
+	privateKey := req.client.account.PrivateKey
+	if randomAccount {
+		privateKey, _, err = utils.NewAccount()
+		if err != nil {
+			return nil, err
+		}
+		price = big.NewInt(0)
+		nonce = 0
+	}
+
 	tx := types.NewTx(&types.LegacyTx{
 		To:       &toAddress,
 		Nonce:    nonce,
 		Gas:      gasLimit,
-		GasPrice: big.NewInt(gasPrice),
+		GasPrice: price,
 		Data:     pack,
 	})
-	signTx, err := types.SignTx(tx, types.NewEIP155Signer(req.client.cli.EthGetChainId()), req.client.account.PrivateKey)
+
+	signTx, err := types.SignTx(tx, types.NewEIP155Signer(req.client.cli.EthGetChainId()), privateKey)
 	if err != nil {
 		return nil, err
 	}
